@@ -18,12 +18,7 @@ BASE_URL = 'https://paper-api.alpaca.markets'  # Use 'https://api.alpaca.markets
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
 # Define the list of stock symbols and order size
-symbols = [
-    "XELA", "NAKD", "GNUS", "VERB", "MOGO", "IDEX", "CETX", "INUV", "CIDM", "PHUN",
-    "ONCS", "TNXP", "ACST", "OSMT", "ADXS", "OGEN", "PULM", "DFFN", "BIOC", "ZOM",
-    "TRCH", "CEI", "ZNOG", "FCEL", "RIG", "USEG", "VVPR", "GTE", "ALTO", "DNN",
-    "NUZE", "RM", "FNVT", "ASAP", "MICT", "LMFA", "GRNQ", "BITF", "SOS", "RIOT"
-]
+symbols = []
 
 order_size_in_dollars = round((float(get_cash())/len(symbols)),2)  # Number of shares per trade
 profit_target = 0.001  # 0.1% profit target per trade
@@ -76,7 +71,7 @@ def scalp_trade(symbol):
                         print(f"Sold ${order_size_in_dollars} of {symbol} at {new_price} to cut loss")
                         break
 
-                    time.sleep(2)  # Wait 1 second before checking the price again
+                    time.sleep(1)  # Wait 1 second before checking the price again
 
                 time.sleep(60)  # Wait 60 seconds before starting the next trade cycle
         else:
