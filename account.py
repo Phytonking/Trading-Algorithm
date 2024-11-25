@@ -13,4 +13,5 @@ def get_info():
     return response.json()
 
 def get_cash():
-    return get_info()["buying_power"]
+    return get_info()["daytrading_buying_power"]
+    

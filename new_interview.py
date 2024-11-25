@@ -10,7 +10,7 @@ PORTFOLIO_SIZE = 5000000  # $5 million
 TRANSACTION_COST = 0.01  # $0.01 per share
 START_DATE = '2022-05-01'
 END_DATE = '2024-11-01'
-fed_api = "cc29e12bf7365d61df7f30a335e24ca1"
+FED_API = "cc29e12bf7365d61df7f30a335e24ca1"
 
 # === Data Download ===
 def download_data(events, start_date=START_DATE, end_date=END_DATE):
@@ -21,9 +21,8 @@ def download_data(events, start_date=START_DATE, end_date=END_DATE):
 
 # === Filter by Index Function ===
 def filter_by_index(events, index_name):
-    """Filter events based on the specified index or include all indexes if 'All' is selected."""
     if index_name == 'All':
-        return events  # Return all events without filtering
+        return events
     return events[events['Index Change'] == index_name]
 
 # === Transaction Costs Calculation ===
@@ -32,26 +31,22 @@ def calculate_transaction_costs(shares):
 
 # === Overnight Costs Calculation ===
 def overnight_costs(position, fed_rate, holding_period, is_long=True):
-    rate = (fed_rate/100) + (0.015 if is_long else 0.01)
+    rate = (fed_rate / 100) + (0.015 if is_long else 0.01)
     return (position * rate * holding_period) / 365
 
 # === Fetch Fed Funds Rate ===
 def get_fed_funds_rate(date):
-    # Define FRED API endpoint and parameters
     endpoint = f'https://markets.newyorkfed.org/api/rates/unsecured/effr/search.json?startDate={START_DATE}&endDate={END_DATE}&type=rate'
     response = requests.get(endpoint)
-    
-    # Check if the request was successful
+
     if response.status_code == 200:
         data = response.json()
         for x in data["refRates"]:
             if str(x["effectiveDate"]) == str(date).split(" ")[0]:
-                return float(x["percentRate"])+1.25
+                return float(x["percentRate"]) + 1.25
     else:
         print("Error fetching data:", response.status_code)
         return None
-
-
 
 # === Portfolio Allocation Based on Liquidity Constraints ===
 def allocate_positions(prices, events):
@@ -62,7 +57,20 @@ def allocate_positions(prices, events):
         allocations[ticker] = min(max_position, PORTFOLIO_SIZE / len(events))
     return allocations
 
-# === Backtest Trading Strategies (Supports Opening and Closing Prices Only) ===
+# === SPY Hedge PnL Calculation ===
+def calculate_hedge_pnl(trade_date, exit_date, spy, portfolio_size):
+    spy_data = spy.loc[trade_date:exit_date]
+    if spy_data.empty or len(spy_data) < 2:
+        return 0.0
+
+    hedge_size = portfolio_size / spy_data.iloc[0]["Open"]
+    entry_price = spy_data.iloc[0]["Open"]
+    exit_price = spy_data.iloc[-1]["Close"]
+
+    hedge_pnl = hedge_size * (exit_price - entry_price)
+    return hedge_pnl
+
+# === Backtest Trading Strategies ===
 def backtest(events, prices, spy):
     results = []
     fed_rate = 0
@@ -70,11 +78,11 @@ def backtest(events, prices, spy):
         ticker = event['Ticker']
         trade_date = pd.to_datetime(event["Trade Date"])
         fed_rate = get_fed_funds_rate(str(trade_date))
-        # Determine random holding period for each trade between trade_date and end of price data
+
         max_possible_holding_period = (prices[ticker].index[-1] - trade_date).days
         if max_possible_holding_period < 1:
-            continue  # Skip if there's no data beyond the trade date
-        
+            continue
+
         holding_period = np.random.randint(1, max_possible_holding_period + 1)
         exit_date = trade_date + timedelta(days=holding_period)
 
@@ -94,7 +102,11 @@ def backtest(events, prices, spy):
         txn_costs = calculate_transaction_costs(shares)
         overnight_cost = overnight_costs(shares * entry_price, fed_rate, holding_period)
 
-        net_pnl = pnl - txn_costs - overnight_cost
+        # Hedge PnL
+        hedge_pnl = calculate_hedge_pnl(trade_date, exit_date, spy, PORTFOLIO_SIZE)
+
+        # Net PnL (with hedge)
+        net_pnl = pnl - txn_costs - overnight_cost - hedge_pnl
 
         if net_pnl != 0:
             results.append({
@@ -104,7 +116,9 @@ def backtest(events, prices, spy):
                 'Holding Period (Days)': holding_period,
                 'Entry Price': entry_price,
                 'Exit Price': exit_price,
-                'PnL': net_pnl,
+                'PnL': pnl,
+                'Hedge PnL': hedge_pnl,
+                'Net PnL': net_pnl,
                 'Transaction Costs': txn_costs
             })
 
@@ -112,15 +126,14 @@ def backtest(events, prices, spy):
 
 # === Plotting the Results ===
 def plot_results(results):
-    daily_pnl = results.groupby("Entry Date")["PnL"].sum()
+    daily_pnl = results.groupby("Entry Date")["Net PnL"].sum()
 
-    # Generate Equity Curve (Cumulative PnL)
+    # Generate Equity Curve
     equity_curve = daily_pnl.cumsum()
 
-    # 4. Visualization - Equity Curve
     plt.figure(figsize=(12, 6))
-    plt.plot(equity_curve, label="Equity Curve (Momentum Strategy)", color="blue")
-    plt.title("Equity Curve for Momentum Strategy")
+    plt.plot(equity_curve, label="Equity Curve (Momentum Strategy with Hedge)", color="blue")
+    plt.title("Equity Curve with SPY Hedge")
     plt.xlabel("Date")
     plt.ylabel("Cumulative PnL ($)")
     plt.legend()
@@ -129,11 +142,11 @@ def plot_results(results):
 
 # === Generate PnL Summary ===
 def pnl_summary(results):
-    total_profit = results[results['PnL'] > 0]['PnL'].sum()
-    total_loss = results[results['PnL'] < 0]['PnL'].sum()
-    net_pnl = results['PnL'].sum()
-    num_winning_trades = (results['PnL'] > 0).sum()
-    num_losing_trades = (results['PnL'] < 0).sum()
+    total_profit = results[results['Net PnL'] > 0]['Net PnL'].sum()
+    total_loss = results[results['Net PnL'] < 0]['Net PnL'].sum()
+    net_pnl = results['Net PnL'].sum()
+    num_winning_trades = (results['Net PnL'] > 0).sum()
+    num_losing_trades = (results['Net PnL'] < 0).sum()
 
     summary = {
         'Total Profit': total_profit,
@@ -144,9 +157,27 @@ def pnl_summary(results):
     }
     return summary
 
-# === Sort Results by Profit/Loss ===
-def sort_results(results, by='PnL', ascending=False):
-    return results.sort_values(by=by, ascending=ascending)
+# === Plotting the Results (Comparison of Hedge vs No Hedge) ===
+def plot_results_comparison(results):
+    # Calculate daily PnL for both with and without hedge
+    daily_pnl_with_hedge = results.groupby("Entry Date")["Net PnL"].sum()
+    daily_pnl_without_hedge = results.groupby("Entry Date")["PnL"].sum()
+
+    # Generate Equity Curves
+    equity_curve_with_hedge = daily_pnl_with_hedge.cumsum()
+    equity_curve_without_hedge = daily_pnl_without_hedge.cumsum()
+
+    # Plot Equity Curves
+    plt.figure(figsize=(12, 6))
+    plt.plot(equity_curve_with_hedge, label="With SPY Hedge", color="blue")
+    plt.plot(equity_curve_without_hedge, label="Without SPY Hedge", color="orange")
+    plt.title("Equity Curve Comparison: With vs Without SPY Hedge")
+    plt.xlabel("Date")
+    plt.ylabel("Cumulative PnL ($)")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
 
 # === Main Execution ===
 if __name__ == "__main__":
@@ -163,14 +194,14 @@ if __name__ == "__main__":
     # Allocate positions
     allocations = allocate_positions(prices, events)
 
-    # Run the backtest (trading only at opening and closing prices)
+    # Run the backtest
     results = backtest(events, prices, spy)
 
     # Filter out invalid or zero PnL results
-    results = results[results['PnL'].notna() & (results['PnL'] != 0)]
+    results = results[results['Net PnL'].notna() & (results['Net PnL'] != 0)]
 
-    # Sort results by PnL
-    results_sorted = sort_results(results, by='PnL', ascending=False)
+    # Sort results by Net PnL
+    results_sorted = results.sort_values(by='Net PnL', ascending=False)
 
     # Save sorted results to CSV
     results_sorted.to_csv('results_sorted.csv', index=False)
@@ -183,6 +214,7 @@ if __name__ == "__main__":
     for key, value in summary.items():
         print(f"{key}: {value}")
 
-    # Plot results if valid trades exist
+    # Plot comparison of equity curves with and without hedge
     if not results.empty:
-        plot_results(results)
+        plot_results_comparison(results)
+

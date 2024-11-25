@@ -18,9 +18,12 @@ BASE_URL = 'https://paper-api.alpaca.markets'  # Use 'https://api.alpaca.markets
 api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
 # Define the list of stock symbols and order size
-symbols = []
+symbols = ['AAPL', "COST", "AMZN", "GOOG", "BRK.B"]
 
-order_size_in_dollars = round((float(get_cash())/len(symbols)),2)  # Number of shares per trade
+order_size_in_dollars = round((float(get_cash())/len(symbols)),2) 
+if order_size_in_dollars == 0:
+    print("no buying power available")
+    exit() # Number of shares per trade
 profit_target = 0.001  # 0.1% profit target per trade
 loss_cutoff = 0.0005  # 0.1% loss cutoff per trade
 
